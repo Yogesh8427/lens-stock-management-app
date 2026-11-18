@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lens Stock</string>
+    <!-- Web client ID from Firebase Console → Authentication → Sign-in method → Google → Web SDK configuration -->
+    <string name="default_web_client_id">711369763976-hfp4ilaj39vq02v5l1528drke118fj5o.apps.googleusercontent.com</string>
+</resources>

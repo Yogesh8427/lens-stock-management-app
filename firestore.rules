@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isFamily() {
+      return request.auth != null &&
+        request.auth.token.email in [
+          'kumarshivshiv37@gmail.com',
+          'jayjagdambaoptical@gmail.com',
+          'yk24150@gmail.com'
+        ];
+    }
+    match /{document=**} {
+      allow read, write: if isFamily();
+    }
+  }
+}

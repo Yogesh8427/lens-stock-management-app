@@ -17,4 +17,15 @@ object PowerFormat {
         val value = raw.trim().toLongOrNull() ?: return null
         return if (value in 0..180) value else null
     }
+
+    /** Parses a normalized power string ("-1.25", "+0.50", "0.00") back to its numeric value. */
+    fun toDouble(raw: String): Double? = raw.trim().toDoubleOrNull()
+
+    /** Inverse of [toDouble] — formats a numeric power back to the canonical string, e.g. 1.25 -> "+1.25". */
+    fun format(value: Double): String {
+        val rounded = Math.round(value * 100.0) / 100.0
+        if (rounded == 0.0) return "0.00"
+        val sign = if (rounded > 0) "+" else "-"
+        return "$sign${"%.2f".format(Math.abs(rounded))}"
+    }
 }

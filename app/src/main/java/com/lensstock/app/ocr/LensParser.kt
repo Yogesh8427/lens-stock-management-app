@@ -16,20 +16,30 @@ data class ParsedLens(
  * photographed during shop setup — add a new pattern here when a new supplier's print differs.
  */
 object LensParser {
-    // Separator is ":" only — a "-" here would also swallow a negative sign belonging to the number.
-    private val sphRegex = Regex("""SPH\s*:?\s*([+-]?\d{1,2}\.\d{2})""")
-    private val cylRegex = Regex("""CYL\s*:?\s*([+-]?\d{1,2}\.\d{2})""")
+    // A bare number, allowing 0-2 digits before the point and 1-2 after (suppliers print "-2.5"
+    // as often as "-2.50"), and either "." or "," as the decimal separator (OCR/locale noise).
+    private const val NUMBER = """([+-]?\d{0,2}[.,]\d{1,2})"""
+    // Label-to-value separator: an optional trailing period (e.g. "SPH."), then a colon or an
+    // equals sign, or just whitespace. Deliberately NOT a dash — that would swallow a "-" that
+    // actually belongs to the number as its negative sign (e.g. "SPH-2.00").
+    private const val SEP = """\.?\s*[:=]?\s*"""
+
+    // SPH is also printed as "PWR" (power) or "SPHERE" on single-vision-only packets. \b around
+    // every label so a short one (e.g. "ADD") never matches as a substring of another word.
+    private val sphRegex = Regex("""\b(?:SPH|PWR|SPHERE)$SEP$NUMBER""")
+    private val cylRegex = Regex("""\b(?:CYL|CYLINDER)$SEP$NUMBER""")
     // ADD is the near-vision addition on bifocal/progressive packets, e.g. "ADD: +2.50".
-    private val addRegex = Regex("""ADD\s*:?\s*([+-]?\d{1,2}\.\d{2})""")
+    private val addRegex = Regex("""\b(?:ADD|ADDITION)$SEP$NUMBER""")
     // AXIS is a plain 0-180 degree integer, e.g. "AXIS: 180" — never has a sign or decimal.
-    private val axisRegex = Regex("""AXIS\s*:?\s*(\d{1,3})""")
-    private val blueCutRegex = Regex("BLUE|BC")
+    private val axisRegex = Regex("""\bAXIS$SEP(\d{1,3})""")
+    private val blueCutRegex = Regex("""\b(?:BLUE|BLU|BC)\b""")
 
     // Fallback for suppliers that print power without "SPH/CYL" labels, e.g. "-1.25 / -0.50".
-    private val unlabeledPairRegex = Regex("""([+-]?\d{1,2}\.\d{2})\s*/\s*([+-]?\d{1,2}\.\d{2})""")
+    private val unlabeledPairRegex = Regex("""$NUMBER\s*/\s*$NUMBER""")
 
     fun parse(text: String): ParsedLens? {
-        val upper = text.uppercase()
+        // Normalize comma decimals ("-2,50") to periods before any pattern runs.
+        val upper = text.uppercase().replace(Regex("""(\d),(\d{1,2})(?!\d)"""), "$1.$2")
 
         val sphMatch = sphRegex.find(upper)?.groupValues?.get(1)
         val (sphRaw, cylRaw) = if (sphMatch != null) {

@@ -5,12 +5,15 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.lensstock.app.ui.screens.common.PlaceholderScreen
+import com.lensstock.app.ui.screens.fullstock.FullStockScreen
+import com.lensstock.app.ui.screens.history.HistoryScreen
 import com.lensstock.app.ui.screens.home.HomeScreen
 import com.lensstock.app.ui.screens.login.LoginScreen
 import com.lensstock.app.ui.screens.scan.ScanMode
 import com.lensstock.app.ui.screens.scan.ScanScreen
 import com.lensstock.app.ui.screens.search.SearchScreen
+import com.lensstock.app.ui.screens.settings.SettingsScreen
+import com.lensstock.app.ui.screens.toorder.ToOrderScreen
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
@@ -29,10 +32,14 @@ fun LensStockNavGraph(navController: NavHostController = rememberNavController()
                 onSearch = { navController.navigate(Routes.SEARCH) },
                 onToOrder = { navController.navigate(Routes.TO_ORDER) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
+                onFullStock = { navController.navigate(Routes.FULL_STOCK) },
             )
         }
         composable(Routes.SEARCH) {
             SearchScreen(onBack = navController::popBackStack)
+        }
+        composable(Routes.FULL_STOCK) {
+            FullStockScreen(onBack = navController::popBackStack)
         }
         composable(Routes.SCAN_IN) {
             ScanScreen(mode = ScanMode.IN, onBack = navController::popBackStack)
@@ -41,10 +48,16 @@ fun LensStockNavGraph(navController: NavHostController = rememberNavController()
             ScanScreen(mode = ScanMode.OUT, onBack = navController::popBackStack)
         }
         composable(Routes.TO_ORDER) {
-            PlaceholderScreen("To Order", "Phase 3", navController::popBackStack)
+            ToOrderScreen(onBack = navController::popBackStack)
+        }
+        composable(Routes.ACTIVITY) {
+            HistoryScreen(onBack = navController::popBackStack)
         }
         composable(Routes.SETTINGS) {
-            PlaceholderScreen("Settings", "Phase 3", navController::popBackStack)
+            SettingsScreen(
+                onBack = navController::popBackStack,
+                onActivity = { navController.navigate(Routes.ACTIVITY) },
+            )
         }
     }
 }

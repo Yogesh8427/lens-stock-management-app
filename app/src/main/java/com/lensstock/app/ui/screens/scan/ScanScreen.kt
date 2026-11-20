@@ -1,25 +1,44 @@
 package com.lensstock.app.ui.screens.scan
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -34,9 +53,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lensstock.app.data.model.LensTypes
+import com.lensstock.app.domain.PairFormat
 import kotlinx.coroutines.launch
 
 private enum class ScanStep { CAMERA, CONFIRM }
@@ -47,16 +69,32 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
     var step by rememberSaveable { mutableStateOf(ScanStep.CAMERA) }
     var showManualAdd by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ScanLineItem?>(null) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.saved) {
         if (state.saved) onBack()
     }
 
+    // Leaving the screen shouldn't silently throw away what's been scanned/added so far — only
+    // an explicit "Discard" does that. From the confirm list, back just steps to the camera.
+    val requestBack: () -> Unit = {
+        when {
+            step == ScanStep.CONFIRM -> step = ScanStep.CAMERA
+            state.items.isNotEmpty() -> showDiscardConfirm = true
+            else -> onBack()
+        }
+    }
+    BackHandler(onBack = requestBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(mode.title) },
-                navigationIcon = { OutlinedButton(onClick = onBack) { Text("Back") } },
+                navigationIcon = {
+                    IconButton(onClick = requestBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -84,13 +122,29 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
         }
     }
 
+    state.pendingScan?.let { parsed ->
+        ManualAddDialog(
+            types = state.availableTypes,
+            initial = ScanLineItem(type = parsed.type, sph = parsed.sph, cyl = parsed.cyl, quantity = 1, axis = parsed.axis, add = parsed.add),
+            title = "Confirm scanned lens",
+            confirmLabel = "Add to list",
+            onDismiss = viewModel::dismissPendingScan,
+            onAddType = viewModel::addLensType,
+            onRemoveType = viewModel::removeLensType,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
+                viewModel.confirmPendingScan(type, sph, cyl, axis, add, quantity, boxNumbers)
+            },
+        )
+    }
+
     if (showManualAdd) {
         ManualAddDialog(
             types = state.availableTypes,
             onDismiss = { showManualAdd = false },
             onAddType = viewModel::addLensType,
-            onAdd = { type, sph, cyl, axis, add ->
-                val added = viewModel.addManually(type, sph, cyl, axis, add)
+            onRemoveType = viewModel::removeLensType,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
+                val added = viewModel.addManually(type, sph, cyl, axis, add, quantity, boxNumbers)
                 if (added) showManualAdd = false
                 added
             },
@@ -103,10 +157,28 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
             initial = item,
             onDismiss = { editingItem = null },
             onAddType = viewModel::addLensType,
-            onAdd = { type, sph, cyl, axis, add ->
-                val updated = viewModel.updateItem(item.id, type, sph, cyl, axis, add)
+            onRemoveType = viewModel::removeLensType,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
+                val updated = viewModel.updateItem(item.id, type, sph, cyl, axis, add, quantity, boxNumbers)
                 if (updated) editingItem = null
                 updated
+            },
+        )
+    }
+
+    if (showDiscardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            title = { Text("Discard this list?") },
+            text = { Text("${PairFormat.format(state.items.sumOf { it.quantity })} pair you've added won't be saved. Remove items one at a time instead if you only meant to drop some of them.") },
+            confirmButton = {
+                Button(
+                    onClick = { showDiscardConfirm = false; onBack() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text("Discard") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDiscardConfirm = false }) { Text("Keep editing") }
             },
         )
     }
@@ -154,6 +226,7 @@ private fun CameraStep(
                 onClick = { galleryLauncher.launch("image/*") },
                 modifier = Modifier.padding(top = 8.dp),
             ) {
+                Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text("Pick photo from gallery instead")
             }
         }
@@ -171,7 +244,7 @@ private fun CameraStep(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (itemCount > 0) {
-                Text("$itemCount packet(s) scanned so far", style = MaterialTheme.typography.bodyMedium)
+                Text("${PairFormat.format(itemCount)} pair scanned so far", style = MaterialTheme.typography.bodyMedium)
             }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
@@ -193,18 +266,20 @@ private fun CameraStep(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text("Capture packet")
                 }
                 OutlinedButton(
                     onClick = { galleryLauncher.launch("image/*") },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text("Pick from gallery")
                 }
             }
 
             OutlinedButton(onClick = onReview, modifier = Modifier.fillMaxWidth()) {
-                Text(if (itemCount > 0) "Review & confirm ($itemCount)" else "Add manually / review")
+                Text(if (itemCount > 0) "Review & confirm (${PairFormat.format(itemCount)})" else "Add manually / review")
             }
         }
     }
@@ -223,47 +298,18 @@ private fun ConfirmationStep(
     onConfirmSave: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.items, key = { it.id }) { item ->
-                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "${LensTypes.label(item.type)}  ${item.sph} / ${item.cyl}${item.axisAddSuffix()}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
-                            )
-                            OutlinedButton(
-                                onClick = { onEdit(item) },
-                                contentPadding = PaddingValues(horizontal = 14.dp),
-                            ) { Text("Edit") }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("×${item.quantity}", style = MaterialTheme.typography.titleMedium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                OutlinedButton(
-                                    onClick = { onDecrement(item.id) },
-                                    contentPadding = PaddingValues(horizontal = 14.dp),
-                                ) { Text("−") }
-                                OutlinedButton(
-                                    onClick = { onIncrement(item.id) },
-                                    contentPadding = PaddingValues(horizontal = 14.dp),
-                                ) { Text("+") }
-                                OutlinedButton(
-                                    onClick = { onRemove(item.id) },
-                                    contentPadding = PaddingValues(horizontal = 14.dp),
-                                ) { Text("✕") }
-                            }
-                        }
-                    }
+        if (state.items.isEmpty()) {
+            EmptyConfirmationState(mode = mode, modifier = Modifier.weight(1f))
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(state.items, key = { it.id }) { item ->
+                    ScanItemCard(
+                        item = item,
+                        onIncrement = { onIncrement(item.id) },
+                        onDecrement = { onDecrement(item.id) },
+                        onRemove = { onRemove(item.id) },
+                        onEdit = { onEdit(item) },
+                    )
                 }
             }
         }
@@ -271,8 +317,14 @@ private fun ConfirmationStep(
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 4.dp)) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            OutlinedButton(onClick = onBackToCamera, modifier = Modifier.weight(1f)) { Text("Scan more") }
-            OutlinedButton(onClick = onAddManually, modifier = Modifier.weight(1f)) { Text("Add manually") }
+            OutlinedButton(onClick = onBackToCamera, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 6.dp))
+                Text("Scan more")
+            }
+            OutlinedButton(onClick = onAddManually, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 6.dp))
+                Text("Add manually")
+            }
         }
 
         Button(
@@ -281,9 +333,127 @@ private fun ConfirmationStep(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
             if (state.isProcessing) {
-                CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(18.dp).padding(end = 8.dp))
+            } else {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 6.dp))
             }
             Text("Confirm & Save (${mode.title})")
+        }
+    }
+}
+
+@Composable
+private fun EmptyConfirmationState(mode: ScanMode, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(88.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Filled.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+        }
+        Text(
+            "Nothing added yet",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 20.dp),
+        )
+        Text(
+            if (mode == ScanMode.IN) "Scan a packet or add a lens manually to add stock" else "Scan a packet or add a lens manually to remove stock",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun ScanItemCard(
+    item: ScanLineItem,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit,
+    onRemove: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Inventory2,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(LensTypes.label(item.type), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${item.sph} / ${item.cyl}${item.axisAddSuffix()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    item.boxLabel()?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Text(
+                        "${PairFormat.format(item.quantity)} pair",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FilledTonalIconButton(onClick = onDecrement) {
+                        Icon(Icons.Filled.Remove, contentDescription = "Decrease")
+                    }
+                    FilledTonalIconButton(onClick = onIncrement) {
+                        Icon(Icons.Filled.Add, contentDescription = "Increase")
+                    }
+                    IconButton(onClick = onRemove) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
         }
     }
 }

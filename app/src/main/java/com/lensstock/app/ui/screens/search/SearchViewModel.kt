@@ -2,7 +2,6 @@ package com.lensstock.app.ui.screens.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lensstock.app.data.model.ChangeReason
 import com.lensstock.app.data.model.Lens
 import com.lensstock.app.data.model.LensTypes
 import com.lensstock.app.data.repository.LensRepository
@@ -55,7 +54,8 @@ class SearchViewModel : ViewModel() {
             _uiState.update { it.copy(error = "Enter a valid CYL, e.g. -0.50") }
             return
         }
-        val axis = if (state.axis.isBlank()) 0L else PowerFormat.normalizeAxis(state.axis) ?: run {
+        // Blank AXIS means "any axis" — still finds a toric lens even without knowing its exact axis.
+        val axis: Long? = if (state.axis.isBlank()) null else PowerFormat.normalizeAxis(state.axis) ?: run {
             _uiState.update { it.copy(error = "Enter a valid AXIS, 0-180") }
             return
         }
@@ -69,34 +69,11 @@ class SearchViewModel : ViewModel() {
             try {
                 val lens = repository.findLens(state.type, sph, cyl, axis, add)
                 _uiState.update {
-                    it.copy(isSearching = false, result = lens, searched = true, sph = sph, cyl = cyl, axis = axis.toString(), add = add)
+                    it.copy(isSearching = false, result = lens, searched = true, sph = sph, cyl = cyl, add = add)
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isSearching = false, error = e.message ?: "Search failed") }
             }
-        }
-    }
-
-    /** Manual +1/-1 — for packets the camera can't read, damaged lenses, or returns. */
-    fun adjust(delta: Long) {
-        val state = _uiState.value
-        if (state.sph.isBlank()) return
-        if (delta < 0) {
-            val current = state.result?.quantity ?: 0
-            if (current + delta < 0) {
-                _uiState.update { it.copy(error = "Stock can't go below 0 (currently $current)") }
-                return
-            }
-        }
-        try {
-            // Non-blocking local write — see the comment on LensRepository.changeStock().
-            repository.changeStock(
-                state.type, state.sph, state.cyl.ifBlank { "0.00" }, delta, ChangeReason.MANUAL,
-                axis = state.axisValue, add = state.add,
-            )
-            search()
-        } catch (e: Exception) {
-            _uiState.update { it.copy(error = e.message ?: "Update failed") }
         }
     }
 

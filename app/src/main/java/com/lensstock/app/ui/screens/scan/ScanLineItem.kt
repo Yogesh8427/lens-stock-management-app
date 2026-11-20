@@ -11,6 +11,7 @@ data class ScanLineItem(
     val quantity: Long,
     val axis: Long = 0,
     val add: String = "",
+    val boxNumbers: List<String> = emptyList(),
 )
 
 /** " X90 ADD+2.50" — blank when neither is set, for compact display next to SPH/CYL. */
@@ -19,3 +20,7 @@ fun ScanLineItem.axisAddSuffix(): String {
     val addPart = if (add.isNotBlank()) " ADD$add" else ""
     return axisPart + addPart
 }
+
+/** "Box 12, 14", or null when no box is attached yet. */
+fun ScanLineItem.boxLabel(): String? = boxNumbers.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }
+    ?.joinToString(", ")?.let { "Box $it" }

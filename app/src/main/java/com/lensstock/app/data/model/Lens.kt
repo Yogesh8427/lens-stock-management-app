@@ -17,8 +17,9 @@ data class Lens(
     val axis: Long = 0,
     val add: String = "",
     val quantity: Long = 0,
-    val boxNumber: String = "",
+    val boxNumbers: List<String> = emptyList(),
     val minQuantity: Long = 2,
+    val maxQuantity: Long = 10,
     @ServerTimestamp val updatedAt: Date? = null,
 ) {
     companion object {

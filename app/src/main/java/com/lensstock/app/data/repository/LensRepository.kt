@@ -24,15 +24,51 @@ class LensRepository {
         lensTypes.document(name).set(mapOf("name" to name), SetOptions.merge())
     }
 
-    suspend fun findLens(type: String, sph: String, cyl: String, axis: Long = 0, add: String = ""): Lens? {
-        val id = Lens.documentId(type, sph, cyl, axis, add)
-        val snapshot = lensStock.document(id).get().await()
-        return if (snapshot.exists()) snapshot.toObject(Lens::class.java) else null
+    /**
+     * Removes a shop-defined type — but only when nothing under it still has stock, so inventory
+     * is never silently lost. Any already-zeroed lens docs of that type are cleaned up too, since
+     * they'd otherwise become orphaned (no type chip left to find them under).
+     */
+    suspend fun removeCustomType(name: String): Boolean {
+        val stockForType = lensStock.whereEqualTo("type", name).get().await().toObjects(Lens::class.java)
+        if (stockForType.any { it.quantity > 0 }) return false
+        stockForType.forEach { lensStock.document(it.id).delete() }
+        lensTypes.document(name).delete()
+        return true
+    }
+
+    /**
+     * [axis] null means "unspecified" — e.g. the search screen's AXIS field was left blank — and
+     * looks the lens up regardless of axis, preferring a plain (axis 0) match when one exists, so
+     * a toric lens can still be found by someone who doesn't know its exact axis.
+     */
+    suspend fun findLens(type: String, sph: String, cyl: String, axis: Long? = 0, add: String = ""): Lens? {
+        if (axis != null) {
+            val id = Lens.documentId(type, sph, cyl, axis, add)
+            val snapshot = lensStock.document(id).get().await()
+            return if (snapshot.exists()) snapshot.toObject(Lens::class.java) else null
+        }
+        val matches = lensStock
+            .whereEqualTo("type", type)
+            .whereEqualTo("sph", sph)
+            .whereEqualTo("cyl", cyl)
+            .whereEqualTo("add", add)
+            .get().await().toObjects(Lens::class.java)
+        return matches.firstOrNull { it.axis == 0L } ?: matches.firstOrNull()
     }
 
     suspend fun lowStock(): List<Lens> {
         val all = lensStock.orderBy("type").get().await().toObjects(Lens::class.java)
         return all.filter { it.quantity <= it.minQuantity }
+    }
+
+    /** Every lens currently in stock, for the Full Stock screen. */
+    suspend fun allStock(): List<Lens> =
+        lensStock.orderBy("type").get().await().toObjects(Lens::class.java)
+
+    /** Stops tracking a lens entirely — e.g. a discontinued power — regardless of its quantity. */
+    fun deleteLens(lensId: String) {
+        lensStock.document(lensId).delete()
     }
 
     suspend fun recentHistory(limit: Long = 50) =
@@ -59,7 +95,7 @@ class LensRepository {
         cyl: String,
         delta: Long,
         reason: String,
-        boxNumber: String? = null,
+        boxNumbers: List<String>? = null,
         axis: Long = 0,
         add: String = "",
     ) {
@@ -75,7 +111,10 @@ class LensRepository {
             "quantity" to FieldValue.increment(delta),
             "updatedAt" to FieldValue.serverTimestamp(),
         )
-        if (boxNumber != null) fields["boxNumber"] = boxNumber
+        // arrayUnion appends server-side without needing to know the doc's current box list —
+        // same reasoning as increment() above: this call never reads before it writes, so stock
+        // arriving in a new box doesn't clobber boxes already recorded for this lens.
+        if (!boxNumbers.isNullOrEmpty()) fields["boxNumbers"] = FieldValue.arrayUnion(*boxNumbers.toTypedArray())
 
         ref.set(fields, SetOptions.merge())
 
@@ -85,17 +124,61 @@ class LensRepository {
                 "change" to delta,
                 "reason" to reason,
                 "byUser" to (Firebase.auth.currentUser?.email ?: ""),
+                "type" to type,
+                "sph" to sph,
+                "cyl" to cyl,
+                "axis" to axis,
+                "add" to add,
                 "createdAt" to FieldValue.serverTimestamp(),
             )
         )
     }
 
-    fun setBoxNumber(type: String, sph: String, cyl: String, boxNumber: String, axis: Long = 0, add: String = "") {
-        val id = Lens.documentId(type, sph, cyl, axis, add)
-        lensStock.document(id).set(mapOf("boxNumber" to boxNumber), SetOptions.merge())
-    }
-
     fun manualAdjust(type: String, sph: String, cyl: String, delta: Long, axis: Long = 0, add: String = "") {
         changeStock(type, sph, cyl, delta, ChangeReason.MANUAL, axis = axis, add = add)
+    }
+
+    /**
+     * Full edit from the Full Stock screen: type/power/axis/add, quantity, boxes and thresholds
+     * can all change at once. When the power/type/axis/add changes, [old]'s stock moves to the
+     * (possibly already-existing) doc for the new identity rather than silently overwriting it.
+     */
+    fun editLens(
+        old: Lens,
+        type: String,
+        sph: String,
+        cyl: String,
+        axis: Long,
+        add: String,
+        quantity: Long,
+        boxNumbers: List<String>,
+        minQuantity: Long,
+        maxQuantity: Long,
+    ) {
+        val newId = Lens.documentId(type, sph, cyl, axis, add)
+        if (newId == old.id) {
+            val delta = quantity - old.quantity
+            if (delta != 0L) changeStock(type, sph, cyl, delta, ChangeReason.MANUAL, axis = axis, add = add)
+            lensStock.document(old.id).set(
+                mapOf(
+                    "boxNumbers" to boxNumbers,
+                    "minQuantity" to minQuantity,
+                    "maxQuantity" to maxQuantity,
+                ),
+                SetOptions.merge(),
+            )
+        } else {
+            if (old.quantity != 0L) {
+                changeStock(old.type, old.sph, old.cyl, -old.quantity, ChangeReason.MANUAL, axis = old.axis, add = old.add)
+            }
+            lensStock.document(old.id).delete()
+            if (quantity != 0L) {
+                changeStock(type, sph, cyl, quantity, ChangeReason.MANUAL, boxNumbers = boxNumbers, axis = axis, add = add)
+            }
+            lensStock.document(newId).set(
+                mapOf("minQuantity" to minQuantity, "maxQuantity" to maxQuantity),
+                SetOptions.merge(),
+            )
+        }
     }
 }

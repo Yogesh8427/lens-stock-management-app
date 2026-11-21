@@ -5,7 +5,7 @@ import android.net.Uri
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.common.InputImage
+import com.lensstock.app.ocr.OcrPreprocessor
 import com.lensstock.app.ocr.TextReader
 import java.io.File
 import kotlin.coroutines.resume
@@ -29,7 +29,7 @@ suspend fun ImageCapture.captureAndReadText(context: Context): String {
     }
 
     return try {
-        val image = InputImage.fromFilePath(context, Uri.fromFile(photoFile))
+        val image = OcrPreprocessor.prepare(photoFile)
         TextReader.read(image)
     } finally {
         photoFile.delete()
@@ -38,6 +38,6 @@ suspend fun ImageCapture.captureAndReadText(context: Context): String {
 
 /** Same OCR pipeline as [captureAndReadText], but for a photo already picked from the gallery. */
 suspend fun readTextFromUri(context: Context, uri: Uri): String {
-    val image = InputImage.fromFilePath(context, uri)
+    val image = OcrPreprocessor.prepare(context, uri)
     return TextReader.read(image)
 }

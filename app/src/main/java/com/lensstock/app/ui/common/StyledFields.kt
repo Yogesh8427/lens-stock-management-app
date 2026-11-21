@@ -1,8 +1,19 @@
 package com.lensstock.app.ui.common
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -30,23 +41,54 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.lensstock.app.domain.PairFormat
 
 /**
- * Shared, app-wide styled building blocks (bordered icon-led field cards, pill buttons, dashed
- * "add new" chips, section labels) — the look introduced for the Add/Edit lens sheet, reused by
- * every screen with inputs so the whole app shares one visual language.
+ * Shared, app-wide styled building blocks (bordered icon-led field cards, pill buttons, section
+ * labels) — the look introduced for the Add/Edit lens sheet, reused by every screen with inputs
+ * so the whole app shares one visual language.
  */
+
+/**
+ * A little spring-back "press" feel for tappable rows/cards/buttons — pairs with a component's
+ * own `interactionSource` param so the scale tracks the same press state as its ripple.
+ */
+@Composable
+fun rememberBounceInteraction(): Pair<MutableInteractionSource, Modifier> {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "bounceScale",
+    )
+    return interactionSource to Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+}
+
+/** An error line that fades/collapses in and out instead of abruptly popping the layout around it. */
+@Composable
+fun AnimatedErrorText(message: String?, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = message != null,
+        modifier = modifier,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        Text(
+            message ?: "",
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+    }
+}
 
 /** Every empty-field placeholder in the app uses this — kept very faint so it never reads as a real value. */
 @Composable
@@ -97,6 +139,50 @@ fun LabeledField(
     }
 }
 
+/**
+ * Like [LabeledField], but for a stock threshold entered in pieces — shows its pair equivalent
+ * underneath so a shop owner who thinks in pairs doesn't have to do the math themselves.
+ */
+@Composable
+fun ThresholdField(
+    label: String,
+    placeholder: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Box(modifier = Modifier.padding(top = 2.dp)) {
+                if (value.isEmpty()) {
+                    Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = placeholderColor())
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Text(
+                "= ${PairFormat.format(value.toLongOrNull() ?: 0)} pair",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
 /** A single-line icon field — no bold label, just icon + placeholder/value (e.g. box number, type name). */
 @Composable
 fun IconField(
@@ -137,28 +223,6 @@ fun IconField(
     }
 }
 
-/** A chip with a dashed outline, visually distinct from solid chips — for "add a new one". */
-@Composable
-fun DashedChip(label: String, onClick: () -> Unit) {
-    val color = MaterialTheme.colorScheme.outline
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .clip(CircleShape)
-            .dashedBorder(color)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Icon(Icons.Filled.Add, contentDescription = null, tint = color)
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-fun Modifier.dashedBorder(color: Color, strokeWidthDp: Int = 1): Modifier = this.drawBehind {
-    val stroke = Stroke(width = strokeWidthDp * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f))
-    drawRoundRect(color = color, style = stroke, cornerRadius = CornerRadius(size.height / 2f, size.height / 2f))
-}
 
 /** A wide, pill-shaped primary action button with a leading icon — the app's standard "confirm" button. */
 @Composable
@@ -169,11 +233,13 @@ fun PillButton(
     icon: ImageVector? = null,
     enabled: Boolean = true,
 ) {
+    val (interactionSource, bounce) = rememberBounceInteraction()
     Button(
         onClick = onClick,
         shape = CircleShape,
         enabled = enabled,
-        modifier = modifier,
+        interactionSource = interactionSource,
+        modifier = modifier.then(bounce),
     ) {
         icon?.let {
             Icon(it, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
@@ -190,15 +256,17 @@ fun PillTonalButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val (interactionSource, bounce) = rememberBounceInteraction()
     Button(
         onClick = onClick,
         shape = CircleShape,
         enabled = enabled,
+        interactionSource = interactionSource,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         ),
-        modifier = modifier,
+        modifier = modifier.then(bounce),
     ) {
         Text(text, fontWeight = FontWeight.Bold)
     }

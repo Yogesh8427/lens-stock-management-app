@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,6 +74,38 @@ fun BoxNumbersField(
                 modifier = Modifier.weight(1f),
             )
             PillTonalButton(text = "Add", enabled = draft.isNotBlank(), onClick = ::commitDraft)
+        }
+    }
+}
+
+/**
+ * Read-only context for the Add dialog: which boxes this exact power is already stocked in,
+ * fetched from the existing stock row — not part of [boxNumbers] above (which is only for *new*
+ * box numbers this add should attach), and not removable here, since a stock write only ever
+ * appends box numbers and can't retract one that's already on record.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AlreadyInBoxesRow(boxNumbers: List<String>, modifier: Modifier = Modifier) {
+    if (boxNumbers.isEmpty()) return
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            if (boxNumbers.size > 1) "Already in these boxes" else "Already in this box",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            boxNumbers.forEach { box ->
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text("Box $box") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                )
+            }
         }
     }
 }

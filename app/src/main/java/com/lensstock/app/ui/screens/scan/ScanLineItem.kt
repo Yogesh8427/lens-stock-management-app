@@ -12,6 +12,8 @@ data class ScanLineItem(
     val axis: Long = 0,
     val add: String = "",
     val boxNumbers: List<String> = emptyList(),
+    val minQuantity: Long = 2,
+    val maxQuantity: Long = 10,
 )
 
 /** " X90 ADD+2.50" — blank when neither is set, for compact display next to SPH/CYL. */

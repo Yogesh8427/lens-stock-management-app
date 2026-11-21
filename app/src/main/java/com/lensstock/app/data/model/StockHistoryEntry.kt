@@ -10,6 +10,8 @@ object ChangeReason {
     const val MANUAL = "MANUAL"
     const val DAMAGED = "DAMAGED"
     const val UNDO = "UNDO"
+    /** A lens was deleted ("Stop tracking") from Full Stock while it still had stock. */
+    const val DELETED = "DELETED"
 }
 
 /**

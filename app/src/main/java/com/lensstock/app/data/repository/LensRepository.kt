@@ -66,9 +66,16 @@ class LensRepository {
     suspend fun allStock(): List<Lens> =
         lensStock.orderBy("type").get().await().toObjects(Lens::class.java)
 
-    /** Stops tracking a lens entirely — e.g. a discontinued power — regardless of its quantity. */
-    fun deleteLens(lensId: String) {
-        lensStock.document(lensId).delete()
+    /**
+     * Stops tracking a lens entirely — e.g. a discontinued power — regardless of its quantity.
+     * Whatever stock it still had is logged as a removal first, so deleting it from Full Stock
+     * doesn't silently drop it from the Activity log too.
+     */
+    fun deleteLens(lens: Lens) {
+        if (lens.quantity != 0L) {
+            changeStock(lens.type, lens.sph, lens.cyl, -lens.quantity, ChangeReason.DELETED, axis = lens.axis, add = lens.add)
+        }
+        lensStock.document(lens.id).delete()
     }
 
     suspend fun recentHistory(limit: Long = 50) =
@@ -98,6 +105,8 @@ class LensRepository {
         boxNumbers: List<String>? = null,
         axis: Long = 0,
         add: String = "",
+        minQuantity: Long? = null,
+        maxQuantity: Long? = null,
     ) {
         val id = Lens.documentId(type, sph, cyl, axis, add)
         val ref = lensStock.document(id)
@@ -115,6 +124,11 @@ class LensRepository {
         // same reasoning as increment() above: this call never reads before it writes, so stock
         // arriving in a new box doesn't clobber boxes already recorded for this lens.
         if (!boxNumbers.isNullOrEmpty()) fields["boxNumbers"] = FieldValue.arrayUnion(*boxNumbers.toTypedArray())
+        // Only passed by the Scan In/Out flow (whose dialog always shows these, pre-filled from
+        // any existing stock row) — every other caller (deletes, plain manual adjustments) leaves
+        // these null so it never clobbers thresholds set elsewhere.
+        if (minQuantity != null) fields["minQuantity"] = minQuantity
+        if (maxQuantity != null) fields["maxQuantity"] = maxQuantity
 
         ref.set(fields, SetOptions.merge())
 

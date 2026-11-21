@@ -38,15 +38,18 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    fun onTypeChange(type: String) = _uiState.update { it.copy(type = type) }
-    fun onSphChange(sph: String) = _uiState.update { it.copy(sph = sph) }
-    fun onCylChange(cyl: String) = _uiState.update { it.copy(cyl = cyl) }
-    fun onAxisChange(axis: String) = _uiState.update { it.copy(axis = axis) }
-    fun onAddChange(add: String) = _uiState.update { it.copy(add = add) }
+    // Changing any field after a search invalidates that search's result — otherwise the old
+    // "Not in stock"/found card would keep re-rendering against whatever you're now typing,
+    // looking like a live search that was never actually run.
+    fun onTypeChange(type: String) = _uiState.update { it.copy(type = type, searched = false, result = null) }
+    fun onSphChange(sph: String) = _uiState.update { it.copy(sph = sph, searched = false, result = null) }
+    fun onCylChange(cyl: String) = _uiState.update { it.copy(cyl = cyl, searched = false, result = null) }
+    fun onAxisChange(axis: String) = _uiState.update { it.copy(axis = axis, searched = false, result = null) }
+    fun onAddChange(add: String) = _uiState.update { it.copy(add = add, searched = false, result = null) }
 
     fun search() {
         val state = _uiState.value
-        val sph = normalizePower(state.sph) ?: run {
+        val sph = if (state.sph.isBlank()) "0.00" else normalizePower(state.sph) ?: run {
             _uiState.update { it.copy(error = "Enter a valid SPH, e.g. -1.25") }
             return
         }

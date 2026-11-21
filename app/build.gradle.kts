@@ -38,6 +38,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -74,6 +75,7 @@ dependencies {
 
     // ML Kit text recognition (bundled model, works offline)
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // CameraX
     // Real Guava, not the empty "listenablefuture" stub some transitive deps pull in —

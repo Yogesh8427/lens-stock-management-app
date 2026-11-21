@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lensstock.app.data.model.LensTypes
+import com.lensstock.app.ui.common.AnimatedErrorText
 import com.lensstock.app.ui.common.LabeledField
 import com.lensstock.app.ui.common.LensStatusRow
 import com.lensstock.app.ui.common.PillButton
@@ -100,9 +101,14 @@ fun SearchScreen(
                 }
             }
 
-            PillButton(text = "Search", icon = Icons.Filled.Search, onClick = viewModel::search, modifier = Modifier.fillMaxWidth())
+            PillButton(
+                text = "Search",
+                icon = Icons.Filled.Search,
+                onClick = viewModel::search,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            AnimatedErrorText(state.error)
 
             if (state.searched) {
                 val result = state.result

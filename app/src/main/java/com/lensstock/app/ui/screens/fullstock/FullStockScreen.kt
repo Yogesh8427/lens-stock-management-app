@@ -1,5 +1,11 @@
 package com.lensstock.app.ui.screens.fullstock
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +26,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,8 +59,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lensstock.app.data.model.Lens
 import com.lensstock.app.data.model.LensTypes
 import com.lensstock.app.domain.PairFormat
+import com.lensstock.app.ui.common.AnimatedErrorText
 import com.lensstock.app.ui.common.BoxNumbersField
 import com.lensstock.app.ui.common.DialogHeader
+import com.lensstock.app.ui.common.EmptyState
 import com.lensstock.app.ui.common.LabeledField
 import com.lensstock.app.ui.common.LensStatusRow
 import com.lensstock.app.ui.common.PillButton
@@ -59,6 +70,7 @@ import com.lensstock.app.ui.common.QuantityCard
 import com.lensstock.app.ui.common.SectionLabel
 import com.lensstock.app.ui.common.SignedPowerField
 import com.lensstock.app.ui.common.StockStatus
+import com.lensstock.app.ui.common.ThresholdField
 import com.lensstock.app.ui.common.axisAddSuffix
 import com.lensstock.app.ui.common.color
 import com.lensstock.app.ui.common.icon
@@ -66,7 +78,7 @@ import com.lensstock.app.ui.common.powerLabel
 import com.lensstock.app.ui.common.stockStatus
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun FullStockScreen(onBack: () -> Unit, viewModel: FullStockViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
@@ -106,23 +118,25 @@ fun FullStockScreen(onBack: () -> Unit, viewModel: FullStockViewModel = viewMode
 
             Legend(modifier = Modifier.padding(top = 12.dp))
 
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-            }
+            AnimatedErrorText(state.error)
 
             when {
                 state.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
                 state.rows.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No ${LensTypes.label(state.selectedType)} stock yet", style = MaterialTheme.typography.bodyLarge)
+                    EmptyState(
+                        icon = Icons.Filled.Inventory2,
+                        title = "No ${LensTypes.label(state.selectedType)} stock yet",
+                        subtitle = "Scan or add a lens to get started",
+                    )
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.rows, key = { it.id }) { lens ->
-                        LensStatusRow(lens = lens, onClick = { editingLens = lens })
+                        LensStatusRow(lens = lens, onClick = { editingLens = lens }, modifier = Modifier.animateItem())
                     }
                 }
             }
@@ -192,6 +206,7 @@ private fun EditLensSheet(
     var max by remember { mutableStateOf(lens.maxQuantity.toString()) }
     var error by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(lens.axis != 0L || lens.add.isNotBlank()) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -205,7 +220,8 @@ private fun EditLensSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
+                .padding(bottom = 28.dp)
+                .animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             DialogHeader(icon = Icons.Filled.Edit, title = "Edit lens", subtitle = "Change anything about this stock row", onClose = dismiss)
@@ -233,9 +249,26 @@ private fun EditLensSheet(
                     SignedPowerField("SPH", "e.g. 2.00", sph, { sph = it }, Modifier.weight(1f))
                     SignedPowerField("CYL", "e.g. 0.75", cyl, { cyl = it }, Modifier.weight(1f))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LabeledField("AXIS", "e.g. 180", axis, { axis = it }, Modifier.weight(1f))
-                    LabeledField("ADD", "e.g. +1.00", add, { add = it }, Modifier.weight(1f))
+                TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                    Icon(
+                        if (showAdvanced) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        if (showAdvanced) "Hide AXIS / ADD" else "Toric or bifocal? Add AXIS / ADD",
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = showAdvanced,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LabeledField("AXIS", "e.g. 180", axis, { axis = it }, Modifier.weight(1f))
+                        LabeledField("ADD", "e.g. +1.00", add, { add = it }, Modifier.weight(1f))
+                    }
                 }
             }
 
@@ -256,12 +289,12 @@ private fun EditLensSheet(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionLabel("Stock thresholds")
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LabeledField("Minimum stock", "e.g. 2", min, { min = it }, Modifier.weight(1f))
-                    LabeledField("Maximum stock", "e.g. 10", max, { max = it }, Modifier.weight(1f))
+                    ThresholdField("Minimum stock", "e.g. 2", min, { min = it }, Modifier.weight(1f))
+                    ThresholdField("Maximum stock", "e.g. 10", max, { max = it }, Modifier.weight(1f))
                 }
             }
 
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            AnimatedErrorText(error)
 
             TextButton(onClick = { showDeleteConfirm = true }) {
                 Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -278,7 +311,9 @@ private fun EditLensSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = dismiss) { Text("Cancel") }
-                Button(
+                PillButton(
+                    text = "Save",
+                    icon = Icons.Filled.Check,
                     onClick = {
                         val minVal = min.trim().toLongOrNull()
                         val maxVal = max.trim().toLongOrNull()
@@ -291,12 +326,8 @@ private fun EditLensSheet(
                             }
                         }
                     },
-                    shape = CircleShape,
                     modifier = Modifier.weight(1f).padding(start = 16.dp),
-                ) {
-                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Save", modifier = Modifier.padding(start = 6.dp))
-                }
+                )
             }
         }
     }

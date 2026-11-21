@@ -83,7 +83,7 @@ class FullStockViewModel : ViewModel() {
         minQuantity: Long,
         maxQuantity: Long,
     ): Boolean {
-        val normSph = PowerFormat.normalize(sph) ?: return false
+        val normSph = if (sph.isBlank()) "0.00" else PowerFormat.normalize(sph) ?: return false
         val normCyl = if (cyl.isBlank()) "0.00" else PowerFormat.normalize(cyl) ?: return false
         val normAxis = if (axis.isBlank()) 0L else PowerFormat.normalizeAxis(axis) ?: return false
         val normAdd = if (add.isBlank()) "" else PowerFormat.normalize(add) ?: return false
@@ -111,7 +111,7 @@ class FullStockViewModel : ViewModel() {
 
     /** Stops tracking a discontinued power — removes it from Full Stock permanently. */
     fun deleteLens(lens: Lens) {
-        repository.deleteLens(lens.id)
+        repository.deleteLens(lens)
         allLenses = allLenses.filterNot { it.id == lens.id }
         rebuildRows()
     }

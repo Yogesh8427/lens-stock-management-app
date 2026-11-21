@@ -54,11 +54,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.lensstock.app.BuildConfig
 import com.lensstock.app.data.model.LensTypes
 import com.lensstock.app.domain.PairFormat
+import com.lensstock.app.ui.common.AnimatedErrorText
+import com.lensstock.app.ui.common.EmptyState
+import com.lensstock.app.ui.common.rememberBounceInteraction
 import kotlinx.coroutines.launch
 
 private enum class ScanStep { CAMERA, CONFIRM }
@@ -106,6 +109,7 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
                     onCaptureStarted = viewModel::onCaptureStarted,
                     onCaptureFailed = viewModel::onCaptureFailed,
                     onReview = { step = ScanStep.CONFIRM },
+                    onAddManually = { showManualAdd = true },
                 )
                 ScanStep.CONFIRM -> ConfirmationStep(
                     mode = mode,
@@ -131,8 +135,9 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
             onDismiss = viewModel::dismissPendingScan,
             onAddType = viewModel::addLensType,
             onRemoveType = viewModel::removeLensType,
-            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
-                viewModel.confirmPendingScan(type, sph, cyl, axis, add, quantity, boxNumbers)
+            onLookupExisting = viewModel::findExistingStock,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers, min, max ->
+                viewModel.confirmPendingScan(type, sph, cyl, axis, add, quantity, boxNumbers, min, max)
             },
         )
     }
@@ -143,8 +148,9 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
             onDismiss = { showManualAdd = false },
             onAddType = viewModel::addLensType,
             onRemoveType = viewModel::removeLensType,
-            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
-                val added = viewModel.addManually(type, sph, cyl, axis, add, quantity, boxNumbers)
+            onLookupExisting = viewModel::findExistingStock,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers, min, max ->
+                val added = viewModel.addManually(type, sph, cyl, axis, add, quantity, boxNumbers, min, max)
                 if (added) showManualAdd = false
                 added
             },
@@ -158,8 +164,9 @@ fun ScanScreen(mode: ScanMode, onBack: () -> Unit, viewModel: ScanViewModel = vi
             onDismiss = { editingItem = null },
             onAddType = viewModel::addLensType,
             onRemoveType = viewModel::removeLensType,
-            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers ->
-                val updated = viewModel.updateItem(item.id, type, sph, cyl, axis, add, quantity, boxNumbers)
+            onLookupExisting = viewModel::findExistingStock,
+            onAdd = { type, sph, cyl, axis, add, quantity, boxNumbers, min, max ->
+                val updated = viewModel.updateItem(item.id, type, sph, cyl, axis, add, quantity, boxNumbers, min, max)
                 if (updated) editingItem = null
                 updated
             },
@@ -191,6 +198,7 @@ private fun CameraStep(
     onCaptureStarted: () -> Unit,
     onCaptureFailed: (String) -> Unit,
     onReview: () -> Unit,
+    onAddManually: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -246,7 +254,7 @@ private fun CameraStep(
             if (itemCount > 0) {
                 Text("${PairFormat.format(itemCount)} pair scanned so far", style = MaterialTheme.typography.bodyMedium)
             }
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            AnimatedErrorText(state.error)
 
             if (state.isProcessing) {
                 CircularProgressIndicator()
@@ -269,17 +277,30 @@ private fun CameraStep(
                     Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text("Capture packet")
                 }
-                OutlinedButton(
-                    onClick = { galleryLauncher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Pick from gallery")
+                // Dev/testing convenience only (e.g. feeding it sample packet photos) — gated out
+                // of release builds so shop staff only ever see the camera and manual-entry paths.
+                if (BuildConfig.DEBUG) {
+                    OutlinedButton(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Pick from gallery (dev)")
+                    }
                 }
             }
 
-            OutlinedButton(onClick = onReview, modifier = Modifier.fillMaxWidth()) {
-                Text(if (itemCount > 0) "Review & confirm (${PairFormat.format(itemCount)})" else "Add manually / review")
+            // Nothing scanned yet: one tap straight into the manual-entry form — no detour
+            // through an empty review screen first. Once something's been scanned, this instead
+            // goes to review it, since there's now something to check before saving.
+            OutlinedButton(
+                onClick = { if (itemCount > 0) onReview() else onAddManually() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (itemCount == 0L) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 6.dp))
+                }
+                Text(if (itemCount > 0) "Review & confirm (${PairFormat.format(itemCount)})" else "Add manually")
             }
         }
     }
@@ -309,12 +330,13 @@ private fun ConfirmationStep(
                         onDecrement = { onDecrement(item.id) },
                         onRemove = { onRemove(item.id) },
                         onEdit = { onEdit(item) },
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
         }
 
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 4.dp)) }
+        AnimatedErrorText(state.error)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
             OutlinedButton(onClick = onBackToCamera, modifier = Modifier.weight(1f)) {
@@ -327,10 +349,12 @@ private fun ConfirmationStep(
             }
         }
 
+        val (confirmInteraction, confirmBounce) = rememberBounceInteraction()
         Button(
             onClick = onConfirmSave,
             enabled = state.items.isNotEmpty() && !state.isProcessing,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            interactionSource = confirmInteraction,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).then(confirmBounce),
         ) {
             if (state.isProcessing) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp).padding(end = 8.dp))
@@ -344,37 +368,11 @@ private fun ConfirmationStep(
 
 @Composable
 private fun EmptyConfirmationState(mode: ScanMode, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(88.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Filled.Inventory2,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(44.dp),
-                )
-            }
-        }
-        Text(
-            "Nothing added yet",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 20.dp),
-        )
-        Text(
-            if (mode == ScanMode.IN) "Scan a packet or add a lens manually to add stock" else "Scan a packet or add a lens manually to remove stock",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp),
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        EmptyState(
+            icon = Icons.Filled.Inventory2,
+            title = "Nothing added yet",
+            subtitle = if (mode == ScanMode.IN) "Scan a packet or add a lens manually to add stock" else "Scan a packet or add a lens manually to remove stock",
         )
     }
 }
@@ -386,12 +384,13 @@ private fun ScanItemCard(
     onDecrement: () -> Unit,
     onRemove: () -> Unit,
     onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lensstock.app.data.model.LensTypes
+import com.lensstock.app.ui.common.AnimatedErrorText
+import com.lensstock.app.ui.common.EmptyState
 import com.lensstock.app.ui.common.LensStatusRow
 
 @Composable
@@ -44,26 +46,18 @@ fun ToOrderScreen(onBack: () -> Unit, viewModel: ToOrderViewModel = viewModel())
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
-            }
+            AnimatedErrorText(state.error)
 
             when {
                 state.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                state.rows.isEmpty() -> Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 12.dp),
+                state.rows.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(
+                        icon = Icons.Filled.CheckCircle,
+                        title = "Fully stocked!",
+                        subtitle = "Nothing is low or out of stock right now",
                     )
-                    Text("Nothing low on stock — you're fully stocked!", style = MaterialTheme.typography.bodyLarge)
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -78,7 +72,7 @@ fun ToOrderScreen(onBack: () -> Unit, viewModel: ToOrderViewModel = viewModel())
                             )
                         }
                         items(lenses, key = { it.id }) { lens ->
-                            LensStatusRow(lens = lens)
+                            LensStatusRow(lens = lens, modifier = Modifier.animateItem())
                         }
                     }
                 }

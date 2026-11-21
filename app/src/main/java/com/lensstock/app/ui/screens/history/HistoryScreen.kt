@@ -39,6 +39,8 @@ import com.lensstock.app.data.model.ChangeReason
 import com.lensstock.app.data.model.LensTypes
 import com.lensstock.app.data.model.StockHistoryEntry
 import com.lensstock.app.domain.PairFormat
+import com.lensstock.app.ui.common.AnimatedErrorText
+import com.lensstock.app.ui.common.EmptyState
 import com.lensstock.app.ui.common.StatusFullColor
 import com.lensstock.app.ui.common.StatusLowColor
 import java.text.SimpleDateFormat
@@ -65,23 +67,18 @@ fun HistoryScreen(onBack: () -> Unit, viewModel: HistoryViewModel = viewModel())
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
-            }
+            AnimatedErrorText(state.error)
 
             when {
                 state.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
                 state.groups.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            "Nothing added or removed yet",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
+                    EmptyState(
+                        icon = Icons.Filled.History,
+                        title = "Nothing added or removed yet",
+                        subtitle = "Scan a packet in or out and it'll show up here",
+                    )
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -97,7 +94,7 @@ fun HistoryScreen(onBack: () -> Unit, viewModel: HistoryViewModel = viewModel())
                             )
                         }
                         items(group.entries, key = { it.id }) { entry ->
-                            HistoryRow(entry)
+                            HistoryRow(entry, modifier = Modifier.animateItem())
                         }
                     }
                 }
@@ -107,13 +104,13 @@ fun HistoryScreen(onBack: () -> Unit, viewModel: HistoryViewModel = viewModel())
 }
 
 @Composable
-private fun HistoryRow(entry: StockHistoryEntry) {
+private fun HistoryRow(entry: StockHistoryEntry, modifier: Modifier = Modifier) {
     val isAddition = entry.change > 0
     val color = if (isAddition) AddColor else RemoveColor
     val shape = RoundedCornerShape(16.dp)
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(color.copy(alpha = 0.1f), shape)
@@ -176,6 +173,7 @@ private fun String.reasonLabel(): String = when (this) {
     ChangeReason.MANUAL -> "Manual edit"
     ChangeReason.DAMAGED -> "Damaged"
     ChangeReason.UNDO -> "Undo"
+    ChangeReason.DELETED -> "Stopped tracking"
     else -> this
 }
 

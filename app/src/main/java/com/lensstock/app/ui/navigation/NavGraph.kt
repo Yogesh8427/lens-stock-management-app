@@ -1,6 +1,13 @@
 package com.lensstock.app.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,11 +24,37 @@ import com.lensstock.app.ui.screens.toorder.ToOrderScreen
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
+private const val TRANSITION_MS = 260
+
+/** A subtle slide-and-fade used for every screen-to-screen navigation, forward and back. */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.enter() =
+    slideInHorizontally(animationSpec = tween(TRANSITION_MS), initialOffsetX = { it / 5 }) +
+        fadeIn(tween(TRANSITION_MS))
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.exit() =
+    slideOutHorizontally(animationSpec = tween(TRANSITION_MS), targetOffsetX = { -it / 5 }) +
+        fadeOut(tween(TRANSITION_MS))
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popEnter() =
+    slideInHorizontally(animationSpec = tween(TRANSITION_MS), initialOffsetX = { -it / 5 }) +
+        fadeIn(tween(TRANSITION_MS))
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popExit() =
+    slideOutHorizontally(animationSpec = tween(TRANSITION_MS), targetOffsetX = { it / 5 }) +
+        fadeOut(tween(TRANSITION_MS))
+
 @Composable
 fun LensStockNavGraph(navController: NavHostController = rememberNavController()) {
     val startDestination = if (Firebase.auth.currentUser != null) Routes.HOME else Routes.LOGIN
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = { enter() },
+        exitTransition = { exit() },
+        popEnterTransition = { popEnter() },
+        popExitTransition = { popExit() },
+    ) {
         composable(Routes.LOGIN) {
             LoginScreen(onSignedIn = { navController.navigateToHome() })
         }

@@ -22,6 +22,9 @@ data class ScanUiState(
     val pendingScan: ParsedLens? = null,
 )
 
+/** What's already on record for a power the Add dialog's lookup found — see [ScanViewModel.findExistingStock]. */
+data class ExistingStockInfo(val minQuantity: Long, val maxQuantity: Long, val boxNumbers: List<String>)
+
 class ScanViewModel : ViewModel() {
     private val repository = LensRepository()
     private val _uiState = MutableStateFlow(ScanUiState())
@@ -79,8 +82,11 @@ class ScanViewModel : ViewModel() {
         add: String,
         quantity: Long,
         boxNumbers: List<String>,
+        minQuantity: Long,
+        maxQuantity: Long,
     ): Boolean {
-        val merged = normalizeAndMerge(_uiState.value.items, type, sph, cyl, axis, add, quantity, boxNumbers) ?: return false
+        val merged = normalizeAndMerge(_uiState.value.items, type, sph, cyl, axis, add, quantity, boxNumbers, minQuantity, maxQuantity)
+            ?: return false
         _uiState.update { it.copy(items = merged, pendingScan = null, error = null) }
         return true
     }
@@ -93,8 +99,11 @@ class ScanViewModel : ViewModel() {
         add: String = "",
         quantity: Long = 1,
         boxNumbers: List<String> = emptyList(),
+        minQuantity: Long = 2,
+        maxQuantity: Long = 10,
     ): Boolean {
-        val merged = normalizeAndMerge(_uiState.value.items, type, sph, cyl, axis, add, quantity, boxNumbers) ?: return false
+        val merged = normalizeAndMerge(_uiState.value.items, type, sph, cyl, axis, add, quantity, boxNumbers, minQuantity, maxQuantity)
+            ?: return false
         _uiState.update { it.copy(items = merged, error = null) }
         return true
     }
@@ -109,8 +118,10 @@ class ScanViewModel : ViewModel() {
         add: String,
         quantity: Long,
         boxNumbers: List<String>,
+        minQuantity: Long,
+        maxQuantity: Long,
     ): Boolean {
-        val normSph = PowerFormat.normalize(sph) ?: return false
+        val normSph = if (sph.isBlank()) "0.00" else PowerFormat.normalize(sph) ?: return false
         val normCyl = if (cyl.isBlank()) "0.00" else PowerFormat.normalize(cyl) ?: return false
         val normAxis = if (axis.isBlank()) 0L else PowerFormat.normalizeAxis(axis) ?: return false
         val normAdd = if (add.isBlank()) "" else PowerFormat.normalize(add) ?: return false
@@ -124,18 +135,36 @@ class ScanViewModel : ViewModel() {
             val updatedItems = if (duplicate != null) {
                 others.map {
                     if (it.id == duplicate.id) {
-                        it.copy(quantity = it.quantity + qty, boxNumbers = (it.boxNumbers + boxNumbers).distinct())
+                        it.copy(
+                            quantity = it.quantity + qty, boxNumbers = (it.boxNumbers + boxNumbers).distinct(),
+                            minQuantity = minQuantity, maxQuantity = maxQuantity,
+                        )
                     } else it
                 }
             } else {
                 others + current.copy(
                     type = type, sph = normSph, cyl = normCyl, axis = normAxis, add = normAdd,
-                    quantity = qty, boxNumbers = boxNumbers,
+                    quantity = qty, boxNumbers = boxNumbers, minQuantity = minQuantity, maxQuantity = maxQuantity,
                 )
             }
             state.copy(items = updatedItems, error = null)
         }
         return true
+    }
+
+    /**
+     * Looks up a lens's already-set min/max thresholds and the boxes it's already stocked in,
+     * e.g. for the Add dialog to show them instead of starting blank — null means that exact
+     * power isn't in stock yet (or the fields aren't filled in validly enough to look up), in
+     * which case the dialog falls back to its own defaults.
+     */
+    suspend fun findExistingStock(type: String, sph: String, cyl: String, axis: String, add: String): ExistingStockInfo? {
+        val normSph = if (sph.isBlank()) "0.00" else PowerFormat.normalize(sph) ?: return null
+        val normCyl = if (cyl.isBlank()) "0.00" else PowerFormat.normalize(cyl) ?: return null
+        val normAxis = if (axis.isBlank()) 0L else PowerFormat.normalizeAxis(axis) ?: return null
+        val normAdd = if (add.isBlank()) "" else PowerFormat.normalize(add) ?: return null
+        val lens = repository.findLens(type, normSph, normCyl, normAxis, normAdd) ?: return null
+        return ExistingStockInfo(lens.minQuantity, lens.maxQuantity, lens.boxNumbers)
     }
 
     /** Validates/normalizes raw dialog input and merges it into [items]; null means invalid power. */
@@ -148,12 +177,16 @@ class ScanViewModel : ViewModel() {
         add: String,
         quantity: Long,
         boxNumbers: List<String>,
+        minQuantity: Long,
+        maxQuantity: Long,
     ): List<ScanLineItem>? {
-        val normSph = PowerFormat.normalize(sph) ?: return null
+        val normSph = if (sph.isBlank()) "0.00" else PowerFormat.normalize(sph) ?: return null
         val normCyl = if (cyl.isBlank()) "0.00" else PowerFormat.normalize(cyl) ?: return null
         val normAxis = if (axis.isBlank()) 0L else PowerFormat.normalizeAxis(axis) ?: return null
         val normAdd = if (add.isBlank()) "" else PowerFormat.normalize(add) ?: return null
-        return mergeOrAdd(items, type, normSph, normCyl, normAxis, normAdd, quantity.coerceAtLeast(1), boxNumbers)
+        return mergeOrAdd(
+            items, type, normSph, normCyl, normAxis, normAdd, quantity.coerceAtLeast(1), boxNumbers, minQuantity, maxQuantity,
+        )
     }
 
     fun increment(id: String) = updateQuantity(id, +1)
@@ -186,16 +219,24 @@ class ScanViewModel : ViewModel() {
         add: String = "",
         quantity: Long = 1,
         boxNumbers: List<String> = emptyList(),
+        minQuantity: Long = 2,
+        maxQuantity: Long = 10,
     ): List<ScanLineItem> {
         val existing = items.find { it.type == type && it.sph == sph && it.cyl == cyl && it.axis == axis && it.add == add }
         return if (existing != null) {
             items.map {
                 if (it.id == existing.id) {
-                    it.copy(quantity = it.quantity + quantity, boxNumbers = (it.boxNumbers + boxNumbers).distinct())
+                    it.copy(
+                        quantity = it.quantity + quantity, boxNumbers = (it.boxNumbers + boxNumbers).distinct(),
+                        minQuantity = minQuantity, maxQuantity = maxQuantity,
+                    )
                 } else it
             }
         } else {
-            items + ScanLineItem(type = type, sph = sph, cyl = cyl, quantity = quantity, axis = axis, add = add, boxNumbers = boxNumbers)
+            items + ScanLineItem(
+                type = type, sph = sph, cyl = cyl, quantity = quantity, axis = axis, add = add,
+                boxNumbers = boxNumbers, minQuantity = minQuantity, maxQuantity = maxQuantity,
+            )
         }
     }
 
@@ -223,6 +264,7 @@ class ScanViewModel : ViewModel() {
                         item.type, item.sph, item.cyl, item.quantity * mode.sign, mode.reason,
                         boxNumbers = item.boxNumbers.takeIf { it.isNotEmpty() },
                         axis = item.axis, add = item.add,
+                        minQuantity = item.minQuantity, maxQuantity = item.maxQuantity,
                     )
                 }
                 _uiState.update { it.copy(saved = true) }
